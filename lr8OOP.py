@@ -147,8 +147,9 @@ class ObjectStorage(storage):
         self.observers = []
     def add(self, x, index = None):
         super().add(x,index)
+        self.notifyCreate(x)
+
         self.handler.Invoke(self, None)
-        #self.notifyCreate()
     def clear(self):
         super().clear()
         self.handler.Invoke(self, None)
@@ -207,18 +208,19 @@ class ObjectStorage(storage):
         self.handler.Invoke(self,None)
     def changeColorSelected(self, color):
         self.iterationOfSelectedWithFunc(self.changeColorNode, color)
-    def addSelectedInGroup(self):
-        if self.head.key.__str__() != "Group":
-            self.add(Group(), 0)
-        if not self.head.key.selected:
-            for i in self.head.key.stor:
-                self.add(i)
-            self.head.key.clear()
-        self.head.key.setSelect(False)
-        self.iterationOfSelectedWithFunc(self.head.key.addFromNode)
+    def addSelectedInGroup(self, group):
+        self.add(group)
+        self.iterationOfSelectedWithFunc(group.addFromNode)
         self.deleteSelected()
-        self.head.key.setSelect(True)
+        group.setSelect(True)
         self.handler.Invoke(self, None)
+    def unGroupSelected(self):
+        someNode = self.head
+        for i in range(self.len):
+            if someNode.key.selected and someNode.key.__str__() == "Group":
+                someNode.key.unGroup(self)
+                self.deleteNode(someNode)
+            someNode = someNode.next
     def setlastPressedObj(self, X, Y):
         self.lastPressedObj = [X,Y]
     def save(self, file):
@@ -237,12 +239,10 @@ class ObjectStorage(storage):
         self.observers.append(observer)
     def removeObserver(self, observer):
         self.observers.remove(observer)
-    def notifyCreate(self):
+    def notifyCreate(self, x):
         for i in self.observers:
-            i.UpdateCreate(self)
-    def notifyDelete(self):
-        for i in self.observers:
-            i.UpdateDelete(self)
+            a = i.Add(x.__str__())
+            x.addObserver(a)
 
 
     
@@ -259,26 +259,30 @@ class figure(object):
     def changeCords(self, deltaX,deltaY):
         self.xcord += deltaX
         self.ycord += deltaY
-        #self.notifyObservers()
     def draw(self, flagGraphics, drawPen): pass
     def changeSize(self, val):pass
     def setSelect(self, bol):
         self.selected = bol
-        #self.notifyObservers()
+        self.notifySelect(bol)
     def getColor(self):
         return self.color
     def changeColor(self, color):
         self.color = color
-        #self.notifyObservers()
     def save(self, file): pass
     def load(self, file): pass
     def addObserver(self, observer):
         self.observers.append(observer)
     def removeObserver(self, observer):
         self.observers.remove(observer)
-    #def notifyObservers(self):
-        #for i in self.observers:
-            #i.onObjectChanged(self)
+        observer.Remove()
+    def notifySelect(self, bol):
+        for i in self.observers:
+            i.Checked = bol
+    def notifyDelete(self):
+        for i in range(len(self.observers)):
+            self.removeObserver(self.observers[0])
+    def __del__(self):
+        self.notifyDelete()
 class CCircle(figure):
     def __init__(self, x = 1, y = 1, color = Dr.Color.FromName("DeepSkyBlue")):
         super().__init__(x,y,color)
@@ -399,10 +403,20 @@ class Group(figure):
     def __init__(self, object = None):
         self.stor = []
         self.selected = False
-        if object != None: self.stor.append(object)
-    def add(self, object):
-        self.stor.append(object)
+        self.observers = []
+    def add(self, key):
+        key.notifyDelete()
+        for i in self.observers:
+            a = i.Nodes.Add(key.__str__())
+            key.addObserver(a)
+        self.stor.append(key)
     def addFromNode(self, node):
+        
+        for i in self.observers:
+            for i in node.key.observers:
+                a = i.Nodes.Add(i)
+                node.key.addObserver(a)
+        node.key.notifyDelete()
         self.stor.append(node.key)
     def checkBorder(self, X, Y):
         for i in self.stor:
@@ -426,6 +440,7 @@ class Group(figure):
         self.selected = bol
         for i in self.stor:
             i.setSelect(bol)
+        self.notifySelect(bol)
     def __str__(self):
         return "Group"
     def save(self, file):
@@ -444,6 +459,10 @@ class Group(figure):
             someObj = objectDict[file.readline().split()[0]](1,1,"DeepBluSky")
             someObj.load(file)
             self.add(someObj)
+    def unGroup(self, storage):
+        for i in self.stor:
+            storage.add(i)
+        self.clear()
 
 
 class form1(System.Windows.Forms.Form):
@@ -485,6 +504,7 @@ class form1(System.Windows.Forms.Form):
         self.SaveObjB = WinForm.Button()
         self.LoadObjB = WinForm.Button()
         self.VisualStorTV = WinForm.TreeView()
+        self.UnGroupObjB = WinForm.Button()
 
         self.ObjectStorage.handler = EventHandler(self.drawObjects)
 
@@ -535,11 +555,20 @@ class form1(System.Windows.Forms.Form):
         self.GroupObjB.Location = Dr.Point(1250+60,310)
         self.GroupObjB.Size = Dr.Size(200, 50)
         self.GroupObjB.BackColor = Dr.Color.FromArgb(238,238,240)
-        self.GroupObjB.Text = "Сгруппировать/разгруппировать"
+        self.GroupObjB.Text = "Сгруппировать"
         self.GroupObjB.UseVisualStyleBackColor = 0
         self.GroupObjB.FlatStyle = WinForm.FlatStyle.Flat
         self.GroupObjB.FlatAppearance.BorderSize = 0
         self.GroupObjB.Click += self.GroupObjB_Click
+
+        self.UnGroupObjB.Location = Dr.Point(1250+60+210,310)
+        self.UnGroupObjB.Size = Dr.Size(200, 50)
+        self.UnGroupObjB.BackColor = Dr.Color.FromArgb(238,238,240)
+        self.UnGroupObjB.Text = "Разгруппировать"
+        self.UnGroupObjB.UseVisualStyleBackColor = 0
+        self.UnGroupObjB.FlatStyle = WinForm.FlatStyle.Flat
+        self.UnGroupObjB.FlatAppearance.BorderSize = 0
+        self.UnGroupObjB.Click += self.UnGroupObjB_Click
 
         self.SaveObjB.Location = Dr.Point(1250+60,360)
         self.SaveObjB.Size = Dr.Size(200, 50)
@@ -583,6 +612,7 @@ class form1(System.Windows.Forms.Form):
         self.Controls.Add(self.SaveObjB)
         self.Controls.Add(self.LoadObjB)
         self.Controls.Add(self.VisualStorTV)
+        self.Controls.Add(self.UnGroupObjB)
     def dispose(self):
         self.components.Dispose()
         WinForm.Form.Dispose(self)
@@ -614,11 +644,7 @@ class form1(System.Windows.Forms.Form):
 
     def ImagePB_KeyDown(self, sender, args):
         if args.Button == WinForm.MouseButtons.Right:
-            newObj = self.ObjectStorage.objectsList[self.SwitchObjCB.SelectedIndex](args.X, args.Y, self.drawPen.Color)
-            newNode = WinForm.TreeNode(newObj.__str__())
-            self.VisualStorTV.Nodes.Add(newNode)
-            newObj.addObserver(newNode)
-            self.ObjectStorage.add(newObj)
+            self.ObjectStorage.add(self.ObjectStorage.objectsList[self.SwitchObjCB.SelectedIndex](args.X, args.Y, self.drawPen.Color))
 
         elif args.Button == WinForm.MouseButtons.Left:
             self.leftBPressed = True
@@ -634,7 +660,10 @@ class form1(System.Windows.Forms.Form):
         self.drawPen.Color = Dr.Color.FromName(self.SwitchColorCB.SelectedItem)
         self.ObjectStorage.changeColorSelected(self.drawPen.Color)
     def GroupObjB_Click(self, sender, args):
-        self.ObjectStorage.addSelectedInGroup()  
+        self.ObjectStorage.addSelectedInGroup(Group())
+    def UnGroupObjB_Click(self, sender, args):
+        self.ObjectStorage.unGroupSelected()
+
     def SaveObjB_Click(self, sender, args):
         f = open('D:\progs\Repository\lr7OOP_Respository\data.txt', 'w')
         self.ObjectStorage.save(f)
