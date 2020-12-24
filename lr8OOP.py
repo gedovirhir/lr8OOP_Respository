@@ -145,17 +145,18 @@ class ObjectStorage(storage):
         }   
         self.lastPressedObj = []
         self.observers = []
+        self.obsObjDict = {
+        }
     def add(self, x, index = None):
         super().add(x,index)
-        self.notifyCreate(x)
-
+        self.notifyCreate(x, self.obsObjDict)
         self.handler.Invoke(self, None)
     def clear(self):
         super().clear()
         self.handler.Invoke(self, None)
     def deleteNode(self, node):
+        node.key.deleteKeyFromObsObjDict(self.obsObjDict)
         super().deleteNode(node)
-        #self.notifyDelete()
     def select(self, node, CtrlPressed):
         if CtrlPressed:
             node.key.setSelect(True)
@@ -170,6 +171,9 @@ class ObjectStorage(storage):
                 prevNode.key.setSelect(False)
                 prevNode = prevNode.prev
         
+        self.handler.Invoke(self, None)
+    def unSelect(self, node):
+        node.key.setSelect(False)
         self.handler.Invoke(self, None)
     def iterationOfSelectedWithFunc(self, func, *args):
         someNode = self.head
@@ -210,19 +214,20 @@ class ObjectStorage(storage):
         self.iterationOfSelectedWithFunc(self.changeColorNode, color)
     def addSelectedInGroup(self, group):
         self.add(group)
-        self.iterationOfSelectedWithFunc(group.addFromNode)
+        self.iterationOfSelectedWithFunc(group.addFromNode, self.obsObjDict)
         self.deleteSelected()
         group.setSelect(True)
         self.handler.Invoke(self, None)
+    
     def unGroupSelected(self):
         someNode = self.head
         for i in range(self.len):
             if someNode.key.selected and someNode.key.__str__() == "Group":
-                someNode.key.unGroup(self)
+                someNode.key.unGroup(self, self.obsObjDict)
                 self.deleteNode(someNode)
             someNode = someNode.next
-    def setlastPressedObj(self, X, Y):
-        self.lastPressedObj = [X,Y]
+    def setlastPressedObj(self, X, Y, node):
+        self.lastPressedObj = [X,Y, node]
     def save(self, file):
         file.write(str(self.len) + '\n')
         someNode = self.head
@@ -233,43 +238,54 @@ class ObjectStorage(storage):
     def load(self, file):
         for i in range(int(file.readline())):
             someObj = self.objectDict[file.readline().split()[0]]()
-            someObj.load(file)
+            someObj.load(file, self.obsObjDict)
             self.add(someObj)
     def addObserver(self, observer):
         self.observers.append(observer)
     def removeObserver(self, observer):
         self.observers.remove(observer)
-    def notifyCreate(self, x):
+    def notifyCreate(self, x, obsObjFict):
         for i in self.observers:
-            a = i.Add(x.__str__())
-            x.addObserver(a)
-
+            x.initializeObservers(i,obsObjFict)
+    def getWithKey(self, key):
+        someNode = self.head
+        for i in range(self.len):
+            if someNode.key.isMe(key):
+                return someNode
+            someNode = someNode.next
 
     
 
 class figure(object):
-    def __init__(self, x = 1, y = 1, color = Dr.Color.FromName("DeepSkyBlue")):
+    def __init__(self, x = 1, y = 1, color = Dr.Color.FromName("DeepSkyBlue"),sticky = False):
         self.xcord = x
         self.ycord = y
         self.color = color
 
+        self.sticky = sticky
+        self.stickied = []
         self.selected = False
         self.observers = []
     def checkBorder(self, X, Y): pass
     def changeCords(self, deltaX,deltaY):
         self.xcord += deltaX
         self.ycord += deltaY
+
+        for i in self.stickied:
+            i.xcord += deltaX
+            i.ycord += deltaY
     def draw(self, flagGraphics, drawPen): pass
     def changeSize(self, val):pass
-    def setSelect(self, bol):
+    def setSelect(self, bol, withNotify = True):
         self.selected = bol
-        self.notifySelect(bol)
+        if withNotify:
+            self.notifySelect(bol)
     def getColor(self):
         return self.color
     def changeColor(self, color):
         self.color = color
     def save(self, file): pass
-    def load(self, file): pass
+    def load(self, file, *args): pass
     def addObserver(self, observer):
         self.observers.append(observer)
     def removeObserver(self, observer):
@@ -281,11 +297,24 @@ class figure(object):
     def notifyDelete(self):
         for i in range(len(self.observers)):
             self.removeObserver(self.observers[0])
+    def initializeObservers(self, parentobs, obsObjFict):
+        a = WinForm.TreeNode(self.__str__())
+        parentobs.Nodes.Add(a)
+        obsObjFict.update({a : self})
+        self.addObserver(a)
+    def isMe(self, key):
+        return key == self
+    def deleteKeyFromObsObjDict(self,ddict):
+        for j in ddict.items():
+            if j[1] == self:
+                ddict.pop(j[0])
+                break
     def __del__(self):
         self.notifyDelete()
+
 class CCircle(figure):
-    def __init__(self, x = 1, y = 1, color = Dr.Color.FromName("DeepSkyBlue")):
-        super().__init__(x,y,color)
+    def __init__(self, x = 1, y = 1, color = Dr.Color.FromName("DeepSkyBlue"),sticky = False):
+        super().__init__(x,y,color,sticky)
 
         self.rad = 15
     def draw(self, flagGraphics, drawPen):
@@ -299,18 +328,17 @@ class CCircle(figure):
         else: return None
     def changeSize(self, val):
         self.rad = 15 + val
-        #self.notifyObservers()
     def __str__(self):
         return "Circle"
     def save(self, file):
         file.write("C" + "\n")
         file.write(str(self.xcord)+" "+str(self.ycord)+" "+ str(self.rad)+ " "+self.color.Name+ "\n")
-    def load(self, file):
+    def load(self, file, *args):
         f = file.readline().split()
         self.xcord, self.ycord, self.rad, self.color = int(f[0]), int(f[1]), int(f[2]), Dr.Color.FromName(f[3])
 class square(figure):
-    def __init__(self, x = 1, y = 1, color = Dr.Color.FromName("DeepSkyBlue")):
-        super().__init__(x,y,color)
+    def __init__(self, x = 1, y = 1, color = Dr.Color.FromName("DeepSkyBlue"),sticky = False):
+        super().__init__(x,y,color,sticky)
 
         self.width = 30
         self.height = 30
@@ -331,12 +359,12 @@ class square(figure):
     def save(self, file):
         file.write("S" + "\n")
         file.write(str(self.xcord)+" "+str(self.ycord)+" "+ str(self.width)+" "+ str(self.height)+ " "+self.color.Name+ "\n")
-    def load(self, file):
+    def load(self, file,*args):
         f = file.readline().split()
         self.xcord, self.ycord, self.width, self.height, self.color = int(f[0]), int(f[1]), int(f[2]), int(f[3]),  Dr.Color.FromName(f[4])
 class triangle(figure):
-    def __init__(self,x = 1, y = 1, color = Dr.Color.FromName("DeepSkyBlue")):
-        super().__init__(x,y,color)
+    def __init__(self,x = 1, y = 1, color = Dr.Color.FromName("DeepSkyBlue"),sticky = False):
+        super().__init__(x,y,color,sticky)
 
         self.width = 30
         self.height = int(round(self.width*(np.sin(np.deg2rad(60)))))
@@ -362,12 +390,12 @@ class triangle(figure):
     def save(self, file):
         file.write("T" + "\n")
         file.write(str(self.xcord)+" "+str(self.ycord)+" "+ str(self.width)+" "+ str(self.height) + " "+self.color.Name+ "\n")
-    def load(self, file):
+    def load(self, file, *args):
         f = file.readline().split()
         self.xcord, self.ycord, self.width, self.height, self.color = int(f[0]), int(f[1]), int(f[2]), int(f[3]),  Dr.Color.FromName(f[4])
 class line(figure):
-    def __init__(self, x = 1, y = 1, color = Dr.Color.FromName("DeepSkyBlue")):
-        super().__init__(x,y,color)
+    def __init__(self, x = 1, y = 1, color = Dr.Color.FromName("DeepSkyBlue"),sticky = False):
+        super().__init__(x,y,color,sticky)
         self.lengh = 100
         self.x1 = self.xcord+self.lengh
         self.y1 = self.ycord
@@ -395,7 +423,7 @@ class line(figure):
     def save(self, file):
         file.write("L" + "\n")
         file.write(str(self.xcord)+" "+str(self.ycord)+" "+ str(self.x1)+" "+ str(self.y1) + " "+self.color.Name+ "\n")
-    def load(self, file):
+    def load(self, file,*args):
         f = file.readline().split()
         self.xcord, self.ycord, self.x1, self.y1, self.color = int(f[0]), int(f[1]), int(f[2]), int(f[3]),  Dr.Color.FromName(f[4])
 
@@ -404,19 +432,17 @@ class Group(figure):
         self.stor = []
         self.selected = False
         self.observers = []
-    def add(self, key):
+    def add(self, key, obsObjDict):
+        key.deleteKeyFromObsObjDict(obsObjDict)
         key.notifyDelete()
         for i in self.observers:
-            a = i.Nodes.Add(key.__str__())
-            key.addObserver(a)
+            key.initializeObservers(i,obsObjDict)
         self.stor.append(key)
-    def addFromNode(self, node):
-        
-        for i in self.observers:
-            for i in node.key.observers:
-                a = i.Nodes.Add(i)
-                node.key.addObserver(a)
+    def addFromNode(self, node,obsObjDict):
+        node.key.deleteKeyFromObsObjDict(obsObjDict)
         node.key.notifyDelete()
+        for i in self.observers:
+            node.key.initializeObservers(i,obsObjDict)
         self.stor.append(node.key)
     def checkBorder(self, X, Y):
         for i in self.stor:
@@ -448,7 +474,7 @@ class Group(figure):
         file.write(str(len(self.stor)) + "\n")
         for i in self.stor:
             i.save(file)
-    def load(self, file):
+    def load(self, file, obsObjDict):
         for i in range(int(file.readline())):
             objectDict = {
                 "C" : CCircle,
@@ -458,13 +484,40 @@ class Group(figure):
             }
             someObj = objectDict[file.readline().split()[0]](1,1,"DeepBluSky")
             someObj.load(file)
-            self.add(someObj)
-    def unGroup(self, storage):
+            self.add(someObj, obsObjDict)
+    def unGroup(self, storage, obsObjDict):
         for i in self.stor:
+            i.deleteKeyFromObsObjDict(obsObjDict)
             storage.add(i)
         self.clear()
-
-
+        super().deleteKeyFromObsObjDict(obsObjDict)
+    def initializeObservers(self, parentobs, obsObjDict):
+        super().initializeObservers(parentobs, obsObjDict)
+        for i in self.observers:
+            for j in self.stor:
+                j.initializeObservers(i, obsObjDict)
+    def isMe(self, key):
+        if self == key:
+            return True
+        else:
+            for i in self.stor:
+                if i.isMe(key):
+                    return True
+    def deleteKeyFromObsObjDict(self,obsObjDict):
+        for i in self.stor:
+            i.deleteKeyFromObsObjDict(obsObjDict)
+        super().deleteKeyFromObsObjDict(obsObjDict)
+"""
+class advancedTreeNode(WinForm.TreeNode):
+    def __init__(self, string):
+        super().__init__(string)
+        self.observers = []
+    def addObserver(self, obs):
+        self.observers.append(obs)
+    def notifySelect(self, bol):
+        for i in self.observers:
+            i.setSelect(bol)
+"""
 class form1(System.Windows.Forms.Form):
     def __init__(self):        
         self.Text = "form"
@@ -487,7 +540,6 @@ class form1(System.Windows.Forms.Form):
         
         self.InitiliazeComponent()
         
-    
     def run(self):
         WinForm.Application.Run(self)
     
@@ -505,6 +557,7 @@ class form1(System.Windows.Forms.Form):
         self.LoadObjB = WinForm.Button()
         self.VisualStorTV = WinForm.TreeView()
         self.UnGroupObjB = WinForm.Button()
+        self.StickyCB = WinForm.CheckBox()
 
         self.ObjectStorage.handler = EventHandler(self.drawObjects)
 
@@ -535,6 +588,10 @@ class form1(System.Windows.Forms.Form):
         self.SwitchObjCB.Items.AddRange([ "Circle","Square", "Triangle", "Line" ])
         self.SwitchObjCB.SelectedIndex = 2
         self.SwitchObjCB.DropDownStyle = WinForm.ComboBoxStyle.DropDownList
+
+        self.StickyCB.Location = Dr.Point(1600,10)
+        self.StickyCB.Size = Dr.Size(300,50)
+        self.StickyCB.Text = "Липкая фигура"
 
         self.SwitchColorCB.Location = Dr.Point(1250,220)
         self.SwitchColorCB.Size = Dr.Size(300,300)
@@ -599,7 +656,8 @@ class form1(System.Windows.Forms.Form):
         self.VisualStorTV.Location = Dr.Point(1250+60,540)
         self.VisualStorTV.Size = Dr.Size(200, 170)
         self.VisualStorTV.CheckBoxes = True
-        self.ObjectStorage.addObserver(self.VisualStorTV.Nodes)
+        self.VisualStorTV.NodeMouseClick += self.VisualStorTV_NodeClick
+        self.ObjectStorage.addObserver(self.VisualStorTV)
         
         self.Controls.Add(self.ImagePB)
         self.Controls.Add(self.butt)
@@ -613,6 +671,7 @@ class form1(System.Windows.Forms.Form):
         self.Controls.Add(self.LoadObjB)
         self.Controls.Add(self.VisualStorTV)
         self.Controls.Add(self.UnGroupObjB)
+        self.Controls.Add(self.StickyCB)
     def dispose(self):
         self.components.Dispose()
         WinForm.Form.Dispose(self)
@@ -640,18 +699,27 @@ class form1(System.Windows.Forms.Form):
             deltaY = args.Y - self.ObjectStorage.lastPressedObj[1]
             if (abs(deltaX) > 10 or abs(deltaY) > 10):
                 self.ObjectStorage.changeCordsSelected(deltaX, deltaY)
+            if self.ObjectStorage.lastPressedObj[2].key.sticky:
+                casNode = self.ObjectStorage.lastPressedObj[2].key
+                self.ObjectStorage.deleteNode(self.ObjectStorage.lastPressedObj[2])
+                casNode2 = self.ObjectStorage.hitInfo(args.X, args.Y)
+                if casNode2:
+                    self.ObjectStorage.select(casNode2, True)
+                    casNode.stickied.append(casNode2.key)
+                    self.ObjectStorage.select(casNode2, True)
+                self.ObjectStorage.add(casNode)
             self.ObjectStorage.lastPressedObj = None
 
     def ImagePB_KeyDown(self, sender, args):
         if args.Button == WinForm.MouseButtons.Right:
-            self.ObjectStorage.add(self.ObjectStorage.objectsList[self.SwitchObjCB.SelectedIndex](args.X, args.Y, self.drawPen.Color))
+            self.ObjectStorage.add(self.ObjectStorage.objectsList[self.SwitchObjCB.SelectedIndex](args.X, args.Y, self.drawPen.Color, self.StickyCB.Checked))
 
         elif args.Button == WinForm.MouseButtons.Left:
             self.leftBPressed = True
             casNode = self.ObjectStorage.hitInfo(args.X, args.Y)
             if casNode:
                 self.ObjectStorage.select(casNode, self.CtrlPressed)
-                self.ObjectStorage.setlastPressedObj(args.X, args.Y)
+                self.ObjectStorage.setlastPressedObj(args.X, args.Y,casNode)
 
 
     def ChangeSizeSB_ValueChanged(self, sender, args):
@@ -672,6 +740,17 @@ class form1(System.Windows.Forms.Form):
         f = open('D:\progs\Repository\lr7OOP_Respository\data.txt')             
         self.ObjectStorage.load(f)
         f.close()
+    def CheckNodes(self, Node):
+        someNode = self.ObjectStorage.getWithKey(self.ObjectStorage.obsObjDict[Node])
+        if Node.Checked:
+            self.ObjectStorage.select(someNode,True)
+        else:
+            self.ObjectStorage.unSelect(someNode)
+        for i in Node.Nodes:
+            self.CheckNodes(i)
+    def VisualStorTV_NodeClick(self, sender, args):
+        for i in self.VisualStorTV.Nodes:
+            self.CheckNodes(i)
         
     def butt_Click(self, sender, args):
         self.ImagePB.Image = None
