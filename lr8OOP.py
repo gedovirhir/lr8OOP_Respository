@@ -268,12 +268,12 @@ class figure(object):
         self.observers = []
     def checkBorder(self, X, Y): pass
     def changeCords(self, deltaX,deltaY):
-        self.xcord += deltaX
-        self.ycord += deltaY
-
-        for i in self.stickied:
-            i.xcord += deltaX
-            i.ycord += deltaY
+        if (len(self.stickied)==0) or self.sticky:        
+            self.xcord += deltaX
+            self.ycord += deltaY
+        if self.sticky and len(self.stickied)>0:
+            for i in self.stickied:
+                i.changeCords(deltaX,deltaY)
     def draw(self, flagGraphics, drawPen): pass
     def changeSize(self, val):pass
     def setSelect(self, bol, withNotify = True):
@@ -708,6 +708,7 @@ class form1(System.Windows.Forms.Form):
                 if casNode2:
                     self.ObjectStorage.select(casNode2, True)
                     casNode.stickied.append(casNode2.key)
+                    casNode2.key.stickied.append(casNode)
                     self.ObjectStorage.select(casNode2, True)
                 self.ObjectStorage.add(casNode)
             self.ObjectStorage.lastPressedObj = None
