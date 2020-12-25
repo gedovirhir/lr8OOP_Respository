@@ -432,6 +432,8 @@ class Group(figure):
         self.stor = []
         self.selected = False
         self.observers = []
+
+        self.sticky = False
     def add(self, key, obsObjDict):
         key.deleteKeyFromObsObjDict(obsObjDict)
         key.notifyDelete()
