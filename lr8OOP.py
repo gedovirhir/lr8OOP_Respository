@@ -2,6 +2,7 @@ import clr
 import random
 import time
 from abc import ABC, abstractmethod
+
 import numpy as np
 
 clr.AddReference('System')
@@ -105,17 +106,13 @@ class storage(__storageList__):
     def deleteIndex(self, index):
         lastNode = self.head
         if index == 0:
-            self.head = lastNode.next
-            if lastNode.next:
-                lastNode.next.prev = None
-            self.len -= 1
+            self.deleteNode(lastNode)
             return
         lastNode = self.getNode(index)
         
         lastNode.deleteThis()
 
-        del lastNode
-        self.len -= 1
+        self.deleteNode(lastNode)
 
     def deleteNode(self, node):
         if node is self.head:
@@ -142,10 +139,13 @@ class ObjectStorage(storage):
             "L" : line,
             "G" : Group
     
-        }   
+        }
+        self.assotiateDict = {} 
         self.lastPressedObj = None
+        self.parentTree = None
     def add(self, x, index = None):
         super().add(x,index)
+        self.notifyCreate(x, self.assotiateDict)
         self.handler.Invoke(self, None)
     def clear(self):
         super().clear()
@@ -171,6 +171,11 @@ class ObjectStorage(storage):
             if someNode.key.selected:
                 func(someNode, *args)
             someNode = someNode.next
+    def deleteNode(self, node):
+        self.assotiateDict[node.key].Remove()
+        self.assotiateDict.pop(node.key)
+        node.key.deleteObserver()
+        super().deleteNode(node)
     def deleteSelected(self):
         self.iterationOfSelectedWithFunc(self.deleteNode)
         
@@ -205,8 +210,9 @@ class ObjectStorage(storage):
         self.iterationOfSelectedWithFunc(self.changeColorNode, color)
     def addSelectedInGroup(self, group):
         self.add(group)
-        self.iterationOfSelectedWithFunc(group.addFromNode)
+        self.iterationOfSelectedWithFunc(group.addFromNode, self.assotiateDict)
         self.deleteSelected()
+        group.initializeCompObserver(self.assotiateDict)
         group.setSelect(True)
         self.handler.Invoke(self, None)
     
@@ -237,6 +243,9 @@ class ObjectStorage(storage):
             a = self.getNode(i).key.checkBorderForObject(key)
             if a: return a
         return None
+    def notifyCreate(self, key, ddict):
+        key.initializeObserver(self.parentTree, ddict)
+
 
     
 
@@ -250,19 +259,20 @@ class figure(object):
         self.stickied = []
         self.selected = False
         self.canMove = True
+        self.observers = []
     def checkBorder(self, X, Y): pass
     def changeCords(self, deltaX,deltaY, extramove = False):
         if self.canMove or extramove:
             self.xcord += deltaX
             self.ycord += deltaY
-        if self.sticky:
-            for i in self.stickied:
-                i.changeCords(deltaX, deltaY)
+        self.changeCordsStickied(deltaX, deltaY)
         self.setPoints()
     def draw(self, flagGraphics, drawPen): pass
     def changeSize(self, val):pass
-    def setSelect(self, bol):
+    def setSelect(self, bol, withNotify = True):
         self.selected = bol
+        if withNotify:
+            self.notifySelect(bol)
     def getColor(self):
         return self.color
     def changeColor(self, color):
@@ -275,14 +285,27 @@ class figure(object):
     def setMove(self, bol):
         self.canMove = bol
     def addStickied(self, key):
-        key.setMove(False)
-        key.setSticky(False)
-        self.stickied.append(key)
+        if key.canMove:
+            key.setMove(False)
+            key.setSticky(False)
+            self.stickied.append(key)
     def changeCordsStickied(self, deltaX, deltaY):
         if self.sticky:
             for i in self.stickied:
                 i.changeCords(deltaX,deltaY, True)
     def setPoints(self): pass
+    def initializeObserver(self,parentTree, ddict):
+        a = WinForm.TreeNode(self.__str__())
+        self.observers.append(a)
+        parentTree.Nodes.Add(a)
+        ddict.update({self : a})
+    def deleteObserver(self):
+        for i in self.observers:
+            i.Remove()
+        self.observers.clear()
+    def notifySelect(self, bol):
+        for i in self.observers:
+            i.Checked = bol
     
 class CCircle(figure):
     def __init__(self, x = 1, y = 1, color = Dr.Color.FromName("DeepSkyBlue")):
@@ -440,13 +463,14 @@ class Group(figure):
 
         self.sticky = False
         self.canMove = True
+        self.observers = []
         if object != None: self.stor.append(object)
     def setPoints(self):
         for i in self.stor:
             i.setPoints()
     def add(self, object):
         self.stor.append(object)
-    def addFromNode(self, node):
+    def addFromNode(self, node, ddict):
         self.stor.append(node.key)
     def checkBorder(self, X, Y):
         for i in self.stor:
@@ -466,10 +490,12 @@ class Group(figure):
             i.changeSize(val)
     def clear(self):
         self.stor.clear()
-    def setSelect(self, bol):
+    def setSelect(self, bol, withNotify = True):
         self.selected = bol
         for i in self.stor:
             i.setSelect(bol)
+        if withNotify:
+            self.notifySelect(bol)
     def __str__(self):
         return "Group"
     def save(self, file):
@@ -502,7 +528,18 @@ class Group(figure):
     def setMove(self, bol):
         for i in self.stor:
             i.setMove(bol)
+    def initializeObserver(self, parentTree, ddict):
+        a = WinForm.TreeNode(self.__str__())
+        self.observers.append(a)
+        parentTree.Nodes.Add(a)
+        ddict.update({self : a})
 
+        for i in self.stor:
+            i.initializeObserver(self.observers[0], ddict)
+    def initializeCompObserver(self, ddict):
+        for i in self.stor:
+            i.initializeObserver(self.observers[0],ddict)
+        
 
 
 class form1(System.Windows.Forms.Form):
@@ -644,6 +681,8 @@ class form1(System.Windows.Forms.Form):
         self.VisualStorTV.Location = Dr.Point(1250+60,540)
         self.VisualStorTV.Size = Dr.Size(200, 170)
         self.VisualStorTV.CheckBoxes = True
+        self.VisualStorTV.NodeMouseClick += self.VisualStorTV_NodeMouseClick
+        self.ObjectStorage.parentTree = self.VisualStorTV
         
         self.Controls.Add(self.ImagePB)
         self.Controls.Add(self.butt)
@@ -686,11 +725,10 @@ class form1(System.Windows.Forms.Form):
             if (abs(deltaX) > 10 or abs(deltaY) > 10):
                 self.ObjectStorage.changeCordsSelected(deltaX, deltaY)
             if self.ObjectStorage.lastPressedObj.sticky:
-                self.ObjectStorage.lastPressedObj.changeCordsStickied(deltaX, deltaY)
                 resultObj = self.ObjectStorage.hitInfoFromObject(self.ObjectStorage.lastPressedObj)
                 if resultObj:
                     self.ObjectStorage.lastPressedObj.addStickied(resultObj)
-                    self.ObjectStorage.select(self.ObjectStorage.hitInfo(args.X, args.Y)[0], True)
+                    
                 
                 
             self.ObjectStorage.lastPressedObj = None
@@ -727,6 +765,14 @@ class form1(System.Windows.Forms.Form):
         f = open('D:\progs\Repository\lr7OOP_Respository\data.txt')             
         self.ObjectStorage.load(f)
         f.close()
+    def checkNodes(self, node):
+        for i in self.ObjectStorage.assotiateDict.items():
+            if i[1] == node:
+                i[0].setSelect(node.Checked, False)
+                self.drawObjects(self.flagGraphics, self.drawPen)
+    def VisualStorTV_NodeMouseClick(self, senderm, args):
+        for i in self.VisualStorTV.Nodes:
+            self.checkNodes(i)
         
     def butt_Click(self, sender, args):
         self.ImagePB.Image = None
